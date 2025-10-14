@@ -1,0 +1,21 @@
+# Essential dependencies for Document Redaction API
+fastapi>=0.100.0
+uvicorn[standard]>=0.23.0
+python-multipart>=0.0.6
+aiofiles>=23.0.0
+pydantic>=2.0.0
+
+# AI/ML dependencies
+transformers>=4.30.0
+torch>=2.0.0
+spacy>=3.6.0
+
+# Document processing
+PyMuPDF>=1.22.0
+python-docx>=0.8.11
+Pillow>=10.0.0
+pytesseract>=0.3.10
+
+# Image processing
+opencv-python>=4.8.0
+numpy>=1.24.0

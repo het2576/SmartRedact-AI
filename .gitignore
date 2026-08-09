@@ -101,8 +101,10 @@ temp/
 # Uploads and user data
 uploads/
 backend/uploads/
+backend/data/
 
-# Test files
+# Test files (scratch scripts at the repo root only - the real pytest
+# suite in backend/tests/ is tracked, see the negations below)
 test_*.txt
 test_*.py
 *_test.py
@@ -112,6 +114,7 @@ test_*.ts
 *.test.ts
 *.spec.js
 *.spec.ts
+!backend/tests/**
 
 # Documentation that might contain sensitive info
 API_ENDPOINTS.md

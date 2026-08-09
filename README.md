@@ -8,7 +8,7 @@ A powerful AI-powered document redaction platform that automatically detects and
 - **PDF Redaction**: Secure visual redaction of PDF documents with black bars
 - **Interactive Review**: Review and select which entities to redact before processing
 - **Audit Trail**: Complete audit logs of all redaction activities
-- **Modern UI**: Beautiful, responsive interface built with React and Tailwind CSS
+- **Modern UI**: A document-native interface built with React and Tailwind CSS — case-file typography, literal redaction bars, no generic dashboard chrome
 - **Real-time Processing**: Fast document processing with progress indicators
 
 ## 🏗️ Architecture
@@ -16,25 +16,34 @@ A powerful AI-powered document redaction platform that automatically detects and
 ```
 SmartRedact/
 ├── backend/                 # FastAPI Backend
-│   ├── app.py              # Main application
+│   ├── app/                # Application package (see backend/README.md)
+│   │   ├── detection/      # Presidio-based PII detection engine
+│   │   ├── extraction/     # PDF/DOCX/image/txt text extraction
+│   │   ├── redaction/      # PDF/DOCX/image redactors
+│   │   └── routes/         # /api/* endpoints
+│   ├── run.py               # dev entrypoint (`python run.py`)
 │   ├── requirements.txt    # Python dependencies
-│   ├── uploads/           # Document storage
-│   ├── venv/              # Virtual environment
-│   └── README.md          # Backend documentation
-├── src/                   # React Frontend
-│   ├── components/        # React components
-│   ├── hooks/            # Custom hooks
-│   ├── services/         # API services
-│   └── pages/            # Page components
-├── package.json          # Frontend dependencies
-├── vite.config.ts        # Vite configuration
+│   ├── tests/               # pytest suite
+│   ├── uploads/            # uploaded document storage (gitignored)
+│   ├── data/                # SQLite document store (gitignored)
+│   ├── venv/                # Virtual environment
+│   └── README.md           # Backend documentation
+├── frontend/                # React Frontend
+│   ├── src/
+│   │   ├── components/     # React components (incl. components/ui primitives)
+│   │   ├── hooks/          # Custom hooks
+│   │   ├── services/       # API services
+│   │   └── pages/          # Page components
+│   ├── package.json        # Frontend dependencies
+│   └── vite.config.ts      # Vite configuration
 └── README.md            # This file
 ```
 
 - **Frontend**: React + TypeScript + Vite + Tailwind CSS
 - **Backend**: FastAPI + Python (in `backend/` folder)
-- **AI Models**: Transformers (BERT-based NER) + spaCy + Regex patterns
-- **Document Processing**: PyMuPDF (PDF), python-docx (Word), Tesseract (OCR)
+- **AI/PII Detection**: [Microsoft Presidio](https://microsoft.github.io/presidio/) (free, MIT-licensed, runs 100% locally) + spaCy NLP, with custom recognizers for identifiers Presidio doesn't cover out of the box
+- **Document Processing**: PyMuPDF (PDF), python-docx (Word), Tesseract (OCR, incl. scanned-PDF fallback)
+- **Storage**: SQLite document store with automatic retention-based cleanup (see backend/README.md)
 
 ## 📋 Prerequisites
 
@@ -52,9 +61,8 @@ git clone <repository-url>
 cd SmartRedact
 
 # Setup and start both frontend and backend
-npm install
-cd backend && python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt && python app.py &
-cd .. && npm run dev
+cd backend && python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt && python -m spacy download en_core_web_lg && python run.py &
+cd ../frontend && npm install && npm run dev
 ```
 
 ### Option 2: Manual Setup
@@ -71,14 +79,22 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 
 # Install dependencies
 pip install -r requirements.txt
+python -m spacy download en_core_web_lg
+
+# Also requires the Tesseract OCR system binary (not a pip package):
+#   macOS:  brew install tesseract
+#   Ubuntu: apt-get install tesseract-ocr
 
 # Start the backend
-python app.py
+python run.py
 ```
 
 #### Frontend Setup
 
 ```bash
+# Navigate to frontend folder
+cd frontend
+
 # Install dependencies
 npm install
 
@@ -130,24 +146,18 @@ Downloads the redacted document.
 
 ### Environment Variables
 
-Create a `.env` file in the root directory:
-
-```env
-# API Configuration
-API_BASE_URL=http://localhost:8000/api
-
-# Development
-NODE_ENV=development
-VITE_API_URL=http://localhost:8000/api
-```
+Backend settings live in `backend/.env` (copy `backend/.env.example` to start). The frontend
+talks to the backend through Vite's dev proxy (`frontend/vite.config.ts`), so no frontend
+`.env` is required for local development; set `VITE_API_URL` in `frontend/.env` only if you're
+pointing the built frontend at a non-default API origin.
 
 ### Backend Configuration
 
-The FastAPI backend can be configured by modifying `backend/app.py`:
+The FastAPI backend is configured via `backend/app/config.py` and environment variables:
 
 - **CORS Origins**: Update allowed origins in the CORS middleware
 - **File Upload Limits**: Modify file size limits
-- **AI Models**: Enable/disable specific AI models
+- **Retention Window**: `RETENTION_HOURS` controls how long uploads and extracted data are kept
 
 ## 🧪 Testing
 
@@ -164,14 +174,13 @@ source venv/bin/activate
 python -m pytest tests/
 ```
 
-### Frontend Testing
+### Frontend Checks
 
 ```bash
-# Run tests
-npm test
-
-# Run tests with coverage
-npm run test:coverage
+cd frontend
+npm run typecheck   # TypeScript
+npm run lint        # ESLint
+npm run build       # production build
 ```
 
 ## 📦 Dependencies
@@ -179,10 +188,10 @@ npm run test:coverage
 ### Backend Dependencies
 
 - **FastAPI**: Modern web framework for building APIs
+- **Presidio** (analyzer + anonymizer): free, MIT-licensed PII detection engine
+- **spaCy**: NLP library backing Presidio's entity recognition
 - **PyMuPDF**: PDF processing and manipulation
-- **Transformers**: Hugging Face transformers for NLP
-- **spaCy**: Advanced NLP library
-- **Tesseract**: OCR engine for image text extraction
+- **Tesseract** (via pytesseract): OCR engine for image and scanned-PDF text extraction
 - **Pillow**: Image processing library
 - **python-docx**: Word document processing
 
@@ -192,7 +201,6 @@ npm run test:coverage
 - **TypeScript**: Type-safe JavaScript
 - **Vite**: Fast build tool and dev server
 - **Tailwind CSS**: Utility-first CSS framework
-- **Framer Motion**: Animation library
 - **Axios**: HTTP client
 - **Lucide React**: Icon library
 
@@ -202,9 +210,10 @@ npm run test:coverage
 
 ```bash
 # Build frontend
+cd frontend
 npm run build
 
-# The built files will be in the `dist/` directory
+# The built files will be in `frontend/dist/`
 ```
 
 ### Docker Deployment
@@ -222,24 +231,26 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
-COPY requirements_api.txt .
-RUN pip install -r requirements_api.txt
+COPY backend/requirements.txt .
+RUN pip install -r requirements.txt && python -m spacy download en_core_web_lg
 
 # Copy application
-COPY . .
+COPY backend/ .
 
 # Expose port
 EXPOSE 8000
 
 # Run application
-CMD ["python", "app.py"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 ```
 
 ## 🔒 Security Features
 
-- **No Data Persistence**: Documents are processed in memory and not stored
-- **Secure Redaction**: Uses PyMuPDF's secure redaction features
+- **Time-Limited Retention**: Documents (files + extracted text + entities) are automatically deleted after a configurable retention window (`RETENTION_HOURS`, default 6h) - not kept indefinitely
+- **Secure Redaction**: Uses PyMuPDF's secure redaction features, which actually removes the underlying text/image data, not just draws over it
 - **CORS Protection**: Configured CORS policies
+- **Filename Sanitization & Upload Limits**: Uploaded filenames are sanitized against path traversal; file type and size are validated
+- **Optional API Key**: Set `API_KEY` to require an `X-API-Key` header on all endpoints except `/api/health`
 - **Input Validation**: Comprehensive input validation using Pydantic
 
 ## 🐛 Troubleshooting
@@ -254,13 +265,14 @@ CMD ["python", "app.py"]
 
 2. **Frontend won't start**
    - Check if Node.js 16+ is installed
+   - Navigate to frontend folder: `cd frontend`
    - Install dependencies: `npm install`
    - Clear cache: `npm run dev -- --force`
 
 3. **API connection issues**
    - Verify backend is running on port 8000
    - Check CORS configuration
-   - Verify proxy settings in `vite.config.ts`
+   - Verify proxy settings in `frontend/vite.config.ts`
 
 4. **Document processing fails**
    - Check file format (PDF, DOCX, images supported)

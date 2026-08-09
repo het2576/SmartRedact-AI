@@ -1,0 +1,277 @@
+"""Presidio-based PII detection engine.
+
+Wraps presidio-analyzer's AnalyzerEngine with a spaCy NLP backend plus a
+handful of custom pattern recognizers, and normalizes results into the
+same `{text, type, start, end, confidence, source, selected}` shape the
+frontend already expects (see src/services/api.ts `Entity`).
+
+Presidio already handles what the previous hand-rolled engine tried (and
+mostly failed) to do itself: overlap/duplicate resolution between
+recognizers, and confidence boosting from nearby context words. We only
+add a light per-type minimum-score filter on top, in one place.
+"""
+
+import logging
+from typing import Dict, List
+
+from presidio_analyzer import AnalyzerEngine
+from presidio_analyzer.nlp_engine import NlpEngineProvider
+
+from app.detection.recognizers import ALL_CUSTOM_RECOGNIZERS
+
+logger = logging.getLogger("smartredact")
+
+# Deliberately no entity allowlist here: Presidio ships recognizers for
+# dozens of country-specific ID formats (US_SSN, UK_NHS, IN_AADHAAR,
+# ES_NIF, SG_NRIC, ...), and this is a general personal-data tool used on
+# real documents from anywhere, not just US-formatted ones. Restricting to
+# a "common" subset would silently stop catching things like an Aadhaar or
+# NHS number entirely. The rare cost is a cosmetic one - two country
+# recognizers can occasionally tie on an ambiguous digit string and the
+# entity gets the "wrong" country label - but it still gets flagged and
+# redacted either way, which is what actually matters.
+MIN_SCORE_BY_TYPE: Dict[str, float] = {
+    # Lowered from spaCy's flat 0.85 floor to 0.4 so structurally-downweighted
+    # PERSON guesses (see _adjust_person_confidence) stay visible for review
+    # instead of disappearing entirely.
+    "PERSON": 0.4,
+    # spaCy's ORG tag on this pipeline gives every hit the same flat, low
+    # confidence (0.85 x the 0.4 multiplier below = 0.34) regardless of
+    # whether it's actually a company name, and in practice on real
+    # documents it is dominated by false positives it has no way to filter
+    # itself: job titles ("AI/ML Intern", "Project Mentor & Director"),
+    # address fragments ("Silverpark Soc", "Pal Rd"), department names,
+    # bare acronyms ("AI"). With no reliable signal to separate those from
+    # a real employer/institution name, the threshold sits just above that
+    # flat score so spaCy's org guesses don't surface at all by default -
+    # our own custom recognizers (MEDICAL_RECORD_NUMBER etc.) are unaffected.
+    "ORGANIZATION": 0.4,
+    "LOCATION": 0.5,
+    "NRP": 0.5,
+    # Lowered analogously to PERSON so structurally-downweighted false
+    # positives (see _adjust_date_confidence) stay visible for review.
+    "DATE_TIME": 0.3,
+    "AGE": 0.6,
+}
+DEFAULT_MIN_SCORE = 0.35
+
+# Whether an entity defaults to checked/selected for redaction. This is
+# deliberately a *separate*, higher bar than MIN_SCORE_BY_TYPE above: we
+# still want to *show* a low-confidence guess for the user to review, but
+# a low-confidence guess should not be pre-checked for a destructive
+# action (blacking out text) - the user should opt in, not opt out.
+AUTO_SELECT_MIN_SCORE = 0.6
+
+# Real full names in documents are overwhelmingly multi-word and every
+# word is capitalized ("Het Limbachiya"). A single bare capitalized word
+# spaCy tags PERSON is, in practice on real documents, at least as likely
+# to be a product/tool/brand name picked up out of a skills list or tech
+# stack ("Docker", "Streamlit", "Claude") as an actual first-name-only
+# mention - spaCy's NER gives every hit the same flat confidence
+# regardless, so there's no score-based way to tell them apart otherwise.
+# This down-weights (not drops) those cases: still detected and shown,
+# just not pre-selected, and short ALL-CAPS tokens (likely acronyms, e.g.
+# "API", "NLP", "CI") get the same treatment even inside a multi-word span.
+PERSON_CONFIDENCE_PENALTY = 0.5
+
+
+def _looks_like_a_name(entity_text: str) -> bool:
+    words = entity_text.split()
+    if len(words) < 2:
+        return False
+    for word in words:
+        if not word[:1].isupper():
+            return False
+        if word.isupper() and len(word) <= 5 and word.isalpha():
+            return False  # short ALL-CAPS token - likely an acronym, not a name
+    return True
+
+
+def _adjust_person_confidence(entity_text: str, score: float) -> float:
+    if _looks_like_a_name(entity_text):
+        return score
+    return score * PERSON_CONFIDENCE_PENALTY
+
+
+# Same problem as PERSON above, different type: spaCy tags plenty of
+# non-dates DATE_TIME ("B.E", "Year", "Semester") at the same flat 0.85 as
+# real ones ("11 May 2026"). A real date/time expression, in any format,
+# always contains either a digit or a month/weekday name - that's not a
+# guess tied to any one document, it's the closed vocabulary of the
+# calendar - so anything with neither is almost certainly a mislabel.
+DATE_TIME_CONFIDENCE_PENALTY = 0.4
+_MONTH_NAMES = {
+    "january", "february", "march", "april", "may", "june", "july",
+    "august", "september", "october", "november", "december",
+    "jan", "feb", "mar", "apr", "jun", "jul", "aug", "sep", "sept", "oct", "nov", "dec",
+}
+_WEEKDAY_NAMES = {
+    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+    "mon", "tue", "tues", "wed", "thu", "thur", "thurs", "fri", "sat", "sun",
+}
+
+
+def _looks_like_a_date(entity_text: str) -> bool:
+    if any(ch.isdigit() for ch in entity_text):
+        return True
+    words = entity_text.lower().replace(".", " ").split()
+    return any(w in _MONTH_NAMES or w in _WEEKDAY_NAMES for w in words)
+
+
+def _adjust_date_confidence(entity_text: str, score: float) -> float:
+    if _looks_like_a_date(entity_text):
+        return score
+    return score * DATE_TIME_CONFIDENCE_PENALTY
+
+
+# Presidio's PhoneRecognizer (backed by Google's `phonenumbers` library)
+# only ever emits a match after that library has already validated it as a
+# structurally correct, dialable number for one of its supported regions
+# (which include IN) - but it then gives *every* match the same flat 0.4
+# base score regardless, relying entirely on a narrow English context-word
+# list ("phone", "mobile", "cell"...) to boost it further. Indian documents
+# routinely label numbers as "Ph No:", "Contact:", or with no label at all,
+# none of which match that list, so a perfectly valid Indian mobile number
+# sits at 0.4 - below AUTO_SELECT_MIN_SCORE - and never gets pre-checked
+# for redaction. Since validity is already guaranteed by the recognizer
+# itself, floor the score instead of penalizing it; genuine context-word
+# matches (already applied by Presidio before this point) can still push it
+# higher than the floor.
+PHONE_CONFIDENCE_FLOOR = 0.75
+
+
+def _adjust_phone_confidence(score: float) -> float:
+    return max(score, PHONE_CONFIDENCE_FLOOR)
+
+
+def _resolve_overlaps(entities: List[dict]) -> List[dict]:
+    """Presidio's own de-duplication only drops results that share both a
+    span *and* an entity type (see EntityRecognizer.remove_duplicates). It
+    does not resolve cases like a URL recognizer matching a substring of an
+    already-detected EMAIL_ADDRESS, or DATE_TIME and AGE both firing on
+    "45-year-old" - so we do a second pass here, keeping the
+    highest-confidence entity for any overlapping span."""
+    ordered = sorted(
+        entities, key=lambda e: (-e["confidence"], e["start"], -(e["end"] - e["start"]))
+    )
+    kept: List[dict] = []
+    for entity in ordered:
+        if any(entity["start"] < k["end"] and entity["end"] > k["start"] for k in kept):
+            continue
+        kept.append(entity)
+    return sorted(kept, key=lambda e: e["start"])
+
+
+class PiiDetectionEngine:
+    """Loads spaCy + Presidio once at startup and reuses it across requests."""
+
+    def __init__(self, spacy_model: str = "en_core_web_lg", language: str = "en"):
+        self.language = language
+        logger.info("Loading spaCy model '%s' for PII detection...", spacy_model)
+
+        nlp_configuration = {
+            "nlp_engine_name": "spacy",
+            "models": [{"lang_code": language, "model_name": spacy_model}],
+            "ner_model_configuration": {
+                "model_to_presidio_entity_mapping": {
+                    "PER": "PERSON",
+                    "PERSON": "PERSON",
+                    "NORP": "NRP",
+                    "FAC": "LOCATION",
+                    "LOC": "LOCATION",
+                    "LOCATION": "LOCATION",
+                    "GPE": "LOCATION",
+                    "ORG": "ORGANIZATION",
+                    "ORGANIZATION": "ORGANIZATION",
+                    "DATE": "DATE_TIME",
+                    "TIME": "DATE_TIME",
+                },
+                # Organizations are the noisiest spaCy label (per Presidio's
+                # own default config comment) - down-weight rather than drop
+                # so they still surface for manual review, at lower confidence.
+                "low_confidence_score_multiplier": 0.4,
+                "low_score_entity_names": ["ORGANIZATION"],
+                "labels_to_ignore": [
+                    "CARDINAL", "EVENT", "LANGUAGE", "LAW", "MONEY",
+                    "ORDINAL", "PERCENT", "PRODUCT", "QUANTITY", "WORK_OF_ART",
+                ],
+            },
+        }
+
+        nlp_engine = NlpEngineProvider(nlp_configuration=nlp_configuration).create_engine()
+        self.analyzer = AnalyzerEngine(
+            nlp_engine=nlp_engine, supported_languages=[language]
+        )
+
+        for recognizer in ALL_CUSTOM_RECOGNIZERS:
+            self.analyzer.registry.add_recognizer(recognizer)
+
+        logger.info(
+            "PII detection engine ready. Supported entities: %s",
+            sorted(self.analyzer.get_supported_entities(language=language)),
+        )
+
+    def detect(self, text: str) -> List[dict]:
+        """Detect PII entities in `text`, returning the frontend's Entity shape."""
+        if not text or not text.strip():
+            return []
+
+        # score_threshold intentionally omitted: we want every candidate
+        # back from Presidio and apply our own per-type minimum below, in
+        # one place, rather than double-gating at two different layers.
+        # entities also omitted (see module docstring above) to keep every
+        # built-in recognizer - including country-specific ID formats - in play.
+        results = self.analyzer.analyze(text=text, language=self.language)
+
+        entities = []
+        for result in results:
+            span = self._clip_to_single_line(text, result.start, result.end)
+            if span is None:
+                continue
+            start, end, entity_text = span
+
+            score = float(result.score)
+            if result.entity_type == "PERSON":
+                score = _adjust_person_confidence(entity_text, score)
+            elif result.entity_type == "DATE_TIME":
+                score = _adjust_date_confidence(entity_text, score)
+            elif result.entity_type == "PHONE_NUMBER":
+                score = _adjust_phone_confidence(score)
+
+            min_score = MIN_SCORE_BY_TYPE.get(result.entity_type, DEFAULT_MIN_SCORE)
+            if score < min_score:
+                continue
+
+            entities.append(
+                {
+                    "text": entity_text,
+                    "type": result.entity_type,
+                    "start": start,
+                    "end": end,
+                    "confidence": round(score, 4),
+                    "source": "presidio",
+                    "selected": score >= AUTO_SELECT_MIN_SCORE,
+                }
+            )
+
+        return _resolve_overlaps(entities)
+
+    @staticmethod
+    def _clip_to_single_line(text: str, start: int, end: int):
+        """spaCy occasionally merges an entity with the start of the next
+        line (e.g. a name header immediately followed by "Email:" on a
+        resume becomes one PERSON span). PII fields are effectively always
+        single-line, so truncate at the first newline and drop anything
+        that becomes too short to be meaningful."""
+        raw = text[start:end]
+        newline_idx = raw.find("\n")
+        if newline_idx != -1:
+            raw = raw[:newline_idx]
+
+        stripped = raw.strip()
+        if len(stripped) < 2:
+            return None
+
+        leading_ws = len(raw) - len(raw.lstrip())
+        clipped_start = start + leading_ws
+        return clipped_start, clipped_start + len(stripped), stripped

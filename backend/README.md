@@ -1,107 +1,129 @@
 # SmartRedact Backend
 
-FastAPI-based document redaction service with AI-powered entity detection.
+FastAPI service that detects and redacts personal data (PII) in PDF, Word,
+image, and text documents.
 
-## Features
+## Detection engine
 
-- **Document Processing**: PDF, DOCX, and image file support
-- **AI Entity Detection**: Uses Transformers and spaCy models for NER
-- **Healthcare-Specific**: Optimized for medical document redaction
-- **Temporary File Management**: Secure file handling with auto-cleanup
-- **RESTful API**: Complete API with documentation
+PII detection is built on [Microsoft Presidio](https://microsoft.github.io/presidio/)
+(`presidio-analyzer` + `presidio-anonymizer`) - free, MIT-licensed, and runs
+entirely locally with no external API calls. It combines:
 
-## Quick Start
-
-### 1. Install Dependencies
-```bash
-cd backend
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-pip install -r requirements.txt
-```
-
-### 2. Run the Server
-```bash
-python app.py
-```
-
-The API will be available at:
-- **API**: http://localhost:8000
-- **Docs**: http://localhost:8000/api/docs
-
-## API Endpoints
-
-### Core Endpoints
-- `GET /api/health` - Health check
-- `POST /api/upload` - Upload document
-- `POST /api/redact` - Redact document
-- `GET /api/download/{document_id}` - Download redacted file
-
-### Preview & Audit Endpoints
-- `GET /api/document/{document_id}/preview` - Document preview
-- `GET /api/document/{document_id}/redacted-preview` - Redacted preview
-- `GET /api/document/{document_id}/audit-log` - Audit log
-- `GET /api/document/{document_id}/download-audit-log` - Download audit log
-
-## Configuration
-
-### Environment Variables
-- `PORT`: Server port (default: 8000)
-- `HOST`: Server host (default: 0.0.0.0)
-
-### File Storage
-- **Uploads**: `backend/uploads/` - Original documents
-- **Temporary**: System temp directory - Redacted files (auto-deleted)
-
-## Models Used
-
-- **Transformers**: `dbmdz/bert-large-cased-finetuned-conll03-english`
-- **spaCy**: `en_core_web_sm` or `en_core_web_md`
-
-## Development
-
-### Running in Development Mode
-```bash
-uvicorn app:app --reload --host 0.0.0.0 --port 8000
-```
-
-### Testing
-```bash
-python test_api.py
-```
+- A spaCy NLP model (`en_core_web_lg` by default) for PERSON, LOCATION,
+  ORGANIZATION, and date/time entities.
+- Presidio's built-in, checksum/pattern-validated recognizers for email,
+  phone, credit cards, IBAN, crypto wallets, IP addresses, and a wide range
+  of country-specific ID formats (US SSN/passport/driver's license, UK NHS,
+  India Aadhaar, etc.) - see `app/detection/engine.py`.
+- Custom recognizers for domain-specific identifiers not covered by
+  Presidio out of the box: medical record numbers, patient/account IDs,
+  ages, street addresses, and zip/PIN codes (`app/detection/recognizers.py`).
 
 ## Architecture
 
 ```
 backend/
-├── app.py              # Main FastAPI application
-├── requirements.txt    # Python dependencies
-├── uploads/           # Original document storage
-├── README.md          # This file
-└── venv/             # Virtual environment (created)
+├── app/
+│   ├── config.py            # env-driven settings
+│   ├── main.py               # FastAPI app, CORS, startup/cleanup lifespan
+│   ├── schemas.py             # request/response models
+│   ├── storage.py              # SQLite-backed document store + retention purge
+│   ├── utils.py                 # filename sanitization, JSON helpers
+│   ├── detection/
+│   │   ├── engine.py             # Presidio-based PiiDetectionEngine
+│   │   └── recognizers.py         # custom pattern recognizers
+│   ├── extraction/
+│   │   └── text_extractor.py       # PDF/DOCX/image/txt -> text, OCR fallback
+│   ├── redaction/
+│   │   ├── text_redactor.py         # bracket redaction for text preview
+│   │   ├── pdf_redactor.py           # word/bbox offset-mapped PDF redaction
+│   │   ├── docx_redactor.py           # run-level offset-mapped DOCX redaction
+│   │   └── image_redactor.py           # OCR line-reconstruction image redaction
+│   └── routes/
+│       └── documents.py               # all /api/* endpoints
+├── run.py                     # dev entrypoint (`python run.py`)
+├── requirements.txt
+└── tests/                      # pytest suite
 ```
 
-## Security Features
+## Quick Start
 
-- **Temporary Files**: Redacted files are stored temporarily and auto-deleted
-- **Entity Filtering**: Advanced filtering to prevent over-detection
-- **Confidence Thresholds**: High-confidence entity detection only
-- **Field Label Exclusion**: Prevents redaction of form labels
+```bash
+cd backend
+python3 -m venv venv
+source venv/bin/activate          # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+python -m spacy download en_core_web_lg
 
-## Performance
+python run.py
+```
 
-- **GPU Support**: Uses MPS (Apple Silicon) or CUDA when available
-- **Model Caching**: Models are loaded once and reused
-- **Background Tasks**: File cleanup runs in background
-- **Memory Efficient**: Temporary file management
+The API is then available at:
+- **API**: http://localhost:8000
+- **Docs**: http://localhost:8000/api/docs
 
+For production, run `uvicorn app.main:app --host 0.0.0.0 --port 8000`
+directly instead of `run.py` (which enables `--reload` for development).
 
+### System dependency: Tesseract OCR
 
+Image and scanned-PDF text extraction need the Tesseract binary (not just
+the `pytesseract` pip package):
 
+```bash
+brew install tesseract          # macOS
+apt-get install tesseract-ocr   # Debian/Ubuntu
+```
 
+`GET /api/health` reports whether Tesseract is actually on `PATH`.
 
+## Configuration
 
+Copy `.env.example` to `.env` to override any of these (all have working
+defaults):
 
+| Variable | Default | Purpose |
+|---|---|---|
+| `SPACY_MODEL` | `en_core_web_lg` | NLP model for detection |
+| `RETENTION_HOURS` | `6` | how long uploaded documents are kept before auto-deletion |
+| `CLEANUP_INTERVAL_MINUTES` | `15` | how often the retention sweep runs |
+| `MAX_UPLOAD_MB` | `25` | max upload size |
+| `API_KEY` | unset | if set, requires a matching `X-API-Key` header on all `/api/*` routes except `/api/health` |
+| `HOST` / `PORT` | `0.0.0.0` / `8000` | server bind address |
 
+## API Endpoints
 
+Unchanged from before, so the existing frontend (`frontend/src/services/api.ts`)
+needs no changes:
 
+- `GET /api/health`
+- `POST /api/upload`
+- `POST /api/redact`
+- `GET /api/download/{document_id}`
+- `GET /api/document/{document_id}/preview`
+- `GET /api/document/{document_id}/redacted-preview`
+- `GET /api/document/{document_id}/audit-log`
+- `GET /api/document/{document_id}/download-audit-log`
+
+## Data handling
+
+- Uploaded files live in `backend/uploads/`; document metadata (extracted
+  text, detected entities, redaction state) lives in a local SQLite file at
+  `backend/data/smartredact.db`.
+- A background task purges documents (DB rows + files) older than
+  `RETENTION_HOURS` on an interval of `CLEANUP_INTERVAL_MINUTES`. This is a
+  PII-handling tool, so documents are not retained indefinitely by default.
+- Uploaded filenames are sanitized (no path traversal), and both file
+  extension and size are validated on upload.
+
+## Testing
+
+```bash
+source venv/bin/activate
+pytest -v
+```
+
+`tests/test_detection.py` covers detection accuracy and false-positive
+regressions directly against the engine. `tests/test_redaction_e2e.py`
+drives the real HTTP API end to end (upload -> redact -> download) and
+verifies the PII is actually gone from the output file, not just flagged.

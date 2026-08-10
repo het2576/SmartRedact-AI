@@ -12,6 +12,9 @@
 FROM python:3.11-slim AS model-prep
 RUN pip install --no-cache-dir spacy>=3.7.0
 RUN python -m spacy download en_core_web_lg
+# nlp.to_disk() only creates the leaf directory (a plain mkdir(), not
+# mkdir(parents=True)) - its parent must already exist, or this fails.
+RUN mkdir -p /model
 RUN python -c "\
 import spacy; \
 nlp = spacy.load('en_core_web_lg'); \

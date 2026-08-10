@@ -90,7 +90,7 @@ defaults):
 | `MAX_UPLOAD_MB` | `25` | max upload size |
 | `API_KEY` | unset | if set, requires a matching `X-API-Key` header on all `/api/*` routes except `/api/health` |
 | `HOST` / `PORT` | `0.0.0.0` / `8000` | server bind address |
-| `CORS_ORIGINS` | localhost only | allowed frontend origins, as a JSON array string, e.g. `["https://your-app.vercel.app"]` |
+| `CORS_ORIGINS` | localhost only | allowed frontend origins, comma-separated, e.g. `https://your-app.vercel.app,http://localhost:5173` |
 
 ## Deployment
 

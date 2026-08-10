@@ -13,7 +13,7 @@ from typing import List, Tuple
 
 from docx import Document as DocxDocument
 
-logger = logging.getLogger("smartredact")
+logger = logging.getLogger("blacken")
 
 REDACTION_CHAR = "█"  # █
 

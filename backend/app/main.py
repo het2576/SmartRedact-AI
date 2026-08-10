@@ -19,7 +19,7 @@ logging.basicConfig(
     level=getattr(logging, settings.log_level.upper(), logging.INFO),
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
-logger = logging.getLogger("smartredact")
+logger = logging.getLogger("blacken")
 
 
 def _purge_stray_audit_logs() -> None:
@@ -66,7 +66,7 @@ async def _cleanup_loop(app: FastAPI) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("Starting SmartRedact API...")
+    logger.info("Starting Blacken API...")
     app.state.store = DocumentStore(settings.db_path)
     app.state.engine = PiiDetectionEngine(
         spacy_model=settings.spacy_model, language=settings.detection_language
@@ -77,7 +77,7 @@ async def lifespan(app: FastAPI):
     await _purge_expired_documents(app.state.store)
     cleanup_task = asyncio.create_task(_cleanup_loop(app))
 
-    logger.info("SmartRedact API ready.")
+    logger.info("Blacken API ready.")
     yield
 
     cleanup_task.cancel()
@@ -85,11 +85,11 @@ async def lifespan(app: FastAPI):
         await cleanup_task
     except asyncio.CancelledError:
         pass
-    logger.info("SmartRedact API shut down.")
+    logger.info("Blacken API shut down.")
 
 
 app = FastAPI(
-    title="SmartRedact API",
+    title="Blacken API",
     description="AI-powered document PII detection and redaction",
     version="2.0.0",
     docs_url="/api/docs",

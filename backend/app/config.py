@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     # Storage / retention
     upload_dir: Path = BACKEND_DIR / "uploads"
     data_dir: Path = BACKEND_DIR / "data"
-    db_path: Path = BACKEND_DIR / "data" / "smartredact.db"
+    db_path: Path = BACKEND_DIR / "data" / "blacken.db"
     retention_hours: float = 6.0
     cleanup_interval_minutes: float = 15.0
 

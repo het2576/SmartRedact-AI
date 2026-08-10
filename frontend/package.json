@@ -1,9 +1,9 @@
 {
-  "name": "smartredact-frontend",
+  "name": "blacken-frontend",
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "SmartRedact document redaction UI",
+  "description": "Blacken document redaction UI",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

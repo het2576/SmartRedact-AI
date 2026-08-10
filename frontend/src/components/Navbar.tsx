@@ -25,7 +25,7 @@ export default function Navbar({ currentPage, onNavigate }: NavbarProps) {
           <span className="flex h-6 w-6 items-center justify-center bg-ink">
             <span className="h-[3px] w-3 bg-paper-raised" />
           </span>
-          SMARTREDACT
+          BLACKEN
         </button>
 
         <nav className="hidden items-center gap-1 sm:flex">

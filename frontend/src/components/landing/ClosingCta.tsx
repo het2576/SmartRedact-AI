@@ -13,7 +13,7 @@ export default function ClosingCta({ onGetStarted }: ClosingCtaProps) {
             Got a document sitting open right now?
           </h2>
           <p className="mt-3 max-w-md font-serif text-lg leading-relaxed text-paper-raised/70">
-            Upload it. See what SmartRedact finds before you decide what to do with it.
+            Upload it. See what Blacken finds before you decide what to do with it.
           </p>
         </div>
         <Button size="lg" variant="flag" onClick={onGetStarted} className="shrink-0">

@@ -1,4 +1,4 @@
-# SmartRedact Backend
+# Blacken Backend
 
 FastAPI service that detects and redacts personal data (PII) in PDF, Word,
 image, and text documents.
@@ -136,7 +136,7 @@ needs no changes:
 
 - Uploaded files live in `backend/uploads/`; document metadata (extracted
   text, detected entities, redaction state) lives in a local SQLite file at
-  `backend/data/smartredact.db`.
+  `backend/data/blacken.db`.
 - A background task purges documents (DB rows + files) older than
   `RETENTION_HOURS` on an interval of `CLEANUP_INTERVAL_MINUTES`. This is a
   PII-handling tool, so documents are not retained indefinitely by default.

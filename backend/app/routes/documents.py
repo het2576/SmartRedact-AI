@@ -30,7 +30,7 @@ from app.schemas import ConfigUpdateRequest, RedactionRequest
 from app.storage import DocumentStore
 from app.utils import make_json_serializable, sanitize_filename
 
-logger = logging.getLogger("smartredact")
+logger = logging.getLogger("blacken")
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".tiff", ".bmp"}
 

@@ -6,7 +6,7 @@ export default function Footer() {
           <span className="h-1.5 w-1.5 rounded-full bg-flag" />
           Nothing is retained past the retention window
         </span>
-        <span>SmartRedact — document redaction, kept honest</span>
+        <span>Blacken — document redaction, kept honest</span>
       </div>
     </footer>
   );

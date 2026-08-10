@@ -27,7 +27,7 @@ from app.extraction.text_extractor import (
 )
 from app.redaction.image_redactor import draw_boxes, find_redaction_boxes
 
-logger = logging.getLogger("smartredact")
+logger = logging.getLogger("blacken")
 
 Bbox = Tuple[float, float, float, float]
 Span = Tuple[int, int, Bbox]

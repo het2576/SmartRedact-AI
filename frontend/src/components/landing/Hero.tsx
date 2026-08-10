@@ -31,13 +31,13 @@ export default function Hero({ onGetStarted }: HeroProps) {
           </div>
 
           <h1 className="mt-6 font-display text-display-1 font-semibold text-ink">
-            Black out what
+            Blacken what
             <br />
             doesn't belong in the open.
           </h1>
 
           <p className="mt-6 max-w-md font-serif text-lg leading-relaxed text-ink-soft">
-            Upload a PDF, DOCX, or scanned image. SmartRedact finds every name, number, and
+            Upload a PDF, DOCX, or scanned image. Blacken finds every name, number, and
             address hiding in it, then removes it from the file itself — not a black box drawn
             over the text.
           </p>

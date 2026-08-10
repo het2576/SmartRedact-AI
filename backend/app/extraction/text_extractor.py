@@ -16,7 +16,7 @@ from PIL import Image
 
 from app.redaction.image_redactor import ocr_extract_text
 
-logger = logging.getLogger("smartredact")
+logger = logging.getLogger("blacken")
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".tiff", ".bmp"}
 

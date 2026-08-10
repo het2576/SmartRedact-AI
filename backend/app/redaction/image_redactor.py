@@ -16,7 +16,7 @@ from typing import Dict, List, Tuple
 import pytesseract
 from PIL import Image, ImageDraw
 
-logger = logging.getLogger("smartredact")
+logger = logging.getLogger("blacken")
 
 Bbox = Tuple[int, int, int, int]
 

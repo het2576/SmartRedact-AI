@@ -24,7 +24,7 @@ export default function CatchGrid() {
           Ten kinds of detail, gone before anyone sees them.
         </h2>
         <p className="mt-4 max-w-lg font-serif text-lg leading-relaxed text-ink-soft">
-          A sample of the identifiers SmartRedact is trained to find. Hover a line to see what's
+          A sample of the identifiers Blacken is trained to find. Hover a line to see what's
           underneath — that's the same bar your reviewers will see and clear by hand.
         </p>
 

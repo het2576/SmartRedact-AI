@@ -1,4 +1,4 @@
-# SmartRedact AI - Document Redaction Platform
+# Blacken - Document Redaction Platform
 
 A powerful AI-powered document redaction platform that automatically detects and redacts sensitive information from PDF documents using advanced machine learning models.
 
@@ -309,5 +309,5 @@ For support and questions:
 
 ---
 
-**SmartRedact AI** - Secure document redaction powered by artificial intelligence.
+**Blacken** - Secure document redaction powered by artificial intelligence.
 

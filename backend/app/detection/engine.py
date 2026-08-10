@@ -19,7 +19,7 @@ from presidio_analyzer.nlp_engine import NlpEngineProvider
 
 from app.detection.recognizers import ALL_CUSTOM_RECOGNIZERS
 
-logger = logging.getLogger("smartredact")
+logger = logging.getLogger("blacken")
 
 # Deliberately no entity allowlist here: Presidio ships recognizers for
 # dozens of country-specific ID formats (US_SSN, UK_NHS, IN_AADHAAR,

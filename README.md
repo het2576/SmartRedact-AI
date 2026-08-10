@@ -14,7 +14,7 @@ A powerful AI-powered document redaction platform that automatically detects and
 ## 🏗️ Architecture
 
 ```
-SmartRedact/
+blacken/
 ├── backend/                 # FastAPI Backend
 │   ├── app/                # Application package (see backend/README.md)
 │   │   ├── detection/      # Presidio-based PII detection engine
@@ -57,8 +57,8 @@ SmartRedact/
 
 ```bash
 # Clone the repository
-git clone <repository-url>
-cd SmartRedact
+git clone https://github.com/het2576/blacken.git
+cd blacken
 
 # Setup and start both frontend and backend
 cd backend && python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt && python -m spacy download en_core_web_lg && python run.py &

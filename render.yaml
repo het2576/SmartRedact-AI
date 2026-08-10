@@ -21,7 +21,7 @@ services:
         value: 0.0.0.0
       # Leave API_KEY unset by default (no auth in local/frontend contract).
       # Add it in Render dashboard later if you want to enforce X-API-Key.
-disks:
-  - name: smartredact-data
-    mountPath: /var/data
-    sizeGB: 5
+    disk:
+      name: smartredact-data
+      mountPath: /var/data
+      sizeGB: 5

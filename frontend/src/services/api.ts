@@ -6,7 +6,10 @@
 import axios, { AxiosResponse } from 'axios';
 
 // API Configuration
-const API_BASE_URL = import.meta.env.DEV ? '/api' : 'http://localhost:8000/api';
+// In production, set VITE_API_URL in Vercel to your Render backend URL, e.g.:
+//   VITE_API_URL=https://your-backend.onrender.com/api
+// In local dev, the Vite proxy (vite.config.ts) forwards /api → localhost:8000
+const API_BASE_URL = import.meta.env.VITE_API_URL ?? '/api';
 
 // Create axios instance with default config
 const apiClient = axios.create({

@@ -1,0 +1,23 @@
+venv/
+__pycache__/
+**/__pycache__/
+.pytest_cache/
+*.pyc
+
+# Local data - never bake real uploads/PII or a stale db into the image
+uploads/
+data/
+
+# Any locally-generated/experimental spaCy model dirs - the image builds its
+# own pruned model in stage 1 of the Dockerfile, it doesn't need one from disk
+models/
+
+# Secrets - real config comes from platform env vars, not a baked-in file
+.env
+.env.*
+!.env.example
+
+.git/
+.gitignore
+README.md
+tests/

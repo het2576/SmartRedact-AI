@@ -112,6 +112,15 @@ _WEEKDAY_NAMES = {
 
 
 def _looks_like_a_date(entity_text: str) -> bool:
+    # A bare run of 6+ digits with no separator at all is virtually never
+    # how anyone writes a date - it's exactly the shape of a phone number,
+    # account number, or other ID instead, and spaCy mislabels those as
+    # DATE_TIME often enough that this needs an explicit carve-out: without
+    # it, the false positive keeps its full, unpenalized confidence and can
+    # win overlap resolution against (and silently swallow) the correctly
+    # detected PHONE_NUMBER/ACCOUNT_NUMBER entity for the same span.
+    if entity_text.isdigit() and len(entity_text) >= 6:
+        return False
     if any(ch.isdigit() for ch in entity_text):
         return True
     words = entity_text.lower().replace(".", " ").split()

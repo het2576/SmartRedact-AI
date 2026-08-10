@@ -90,6 +90,33 @@ defaults):
 | `MAX_UPLOAD_MB` | `25` | max upload size |
 | `API_KEY` | unset | if set, requires a matching `X-API-Key` header on all `/api/*` routes except `/api/health` |
 | `HOST` / `PORT` | `0.0.0.0` / `8000` | server bind address |
+| `CORS_ORIGINS` | localhost only | allowed frontend origins, as a JSON array string, e.g. `["https://your-app.vercel.app"]` |
+
+## Deployment
+
+`Dockerfile` builds a memory-slimmed image, aimed at free-tier hosts like
+Railway or Render (typically 512MB-1GB RAM):
+
+- Full `en_core_web_lg` loads to ~800MB RAM - its 342k-entry word-vector
+  table dominates that, even though the actual trained NER weights are a
+  small fraction of it. Stage 1 of the Dockerfile downloads `lg`, then runs
+  spaCy's own supported `vocab.prune_vectors(20000)` to collapse rare
+  vectors onto their nearest neighbor, and saves the result. Stage 2 (the
+  image that actually ships) copies in only that ~54MB pruned model, never
+  the original ~560MB download.
+- Measured locally: 799MB -> 426MB RSS, with no measurable NER accuracy
+  loss on real documents (it's the same trained weights) - noticeably
+  *better* results than either `en_core_web_sm` or `en_core_web_md`, which
+  both introduced false positives (e.g. tagging an address fragment like
+  "Silverpark Soc" as a PERSON) that neither full nor pruned `lg` did.
+- `SPACY_MODEL` is set in the image to the pruned model's path
+  (`/app/models/en_core_web_lg_pruned`) rather than a package name - spaCy
+  loads either the same way. Override it (e.g. back to `en_core_web_lg`) via
+  a platform env var if you move to a host with >= 1.5GB RAM.
+- Structured PII - SSN, email, phone, credit card, IP, dates, and this
+  repo's custom recognizers - comes from Presidio's own pattern/checksum
+  recognizers, not spaCy, so none of this affects their accuracy either way;
+  only PERSON/ORGANIZATION/LOCATION quality depends on which model is used.
 
 ## API Endpoints
 

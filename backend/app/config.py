@@ -30,7 +30,8 @@ class Settings(BaseSettings):
     # Security
     api_key: str | None = None
 
-    # CORS
+    # CORS — override via CORS_ORIGINS env var (JSON array string) in production, e.g.:
+    #   CORS_ORIGINS=["https://your-app.vercel.app","http://localhost:5173"]
     cors_origins: list[str] = [
         "http://localhost:3000",
         "http://localhost:5173",

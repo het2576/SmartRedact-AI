@@ -103,6 +103,10 @@ uploads/
 backend/uploads/
 backend/data/
 
+# Locally-generated spaCy model artifacts (e.g. pruned models for memory
+# testing) - the deploy image builds its own, see backend/Dockerfile
+backend/models/
+
 # Test files (scratch scripts at the repo root only - the real pytest
 # suite in backend/tests/ is tracked, see the negations below)
 test_*.txt

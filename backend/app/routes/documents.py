@@ -51,6 +51,23 @@ async def require_api_key(x_api_key: Optional[str] = Header(default=None)) -> No
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 
+def get_owner_id(x_owner_id: Optional[str] = Header(default=None)) -> str:
+    """Every document is scoped to the anonymous owner token the browser sends
+    in the X-Owner-Id header (persisted in localStorage). This is what keeps one
+    visitor's uploads out of another's history — the app has no login, so this
+    per-client token is the isolation boundary.
+
+    IMPORTANT: We intentionally do NOT fall back to a shared "anonymous" bucket
+    when the header is absent or empty. Doing so caused every user without a
+    valid token (private-browsing, CORS header stripped, etc.) to see each
+    other's documents. Instead we use a sentinel value that will simply match
+    no stored documents, giving those clients an empty history."""
+    owner = (x_owner_id or "").strip()
+    # Use a sentinel that can never be stored (contains a null byte) so
+    # unauthenticated callers see an empty list rather than a shared bucket.
+    return owner if owner else "__no_owner__\x00"
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
@@ -75,8 +92,11 @@ async def health_check(request: Request):
 
 
 @router.get("/documents")
-async def list_documents(store: DocumentStore = Depends(get_store)):
-    docs = await store.list_all()
+async def list_documents(
+    store: DocumentStore = Depends(get_store),
+    owner_id: str = Depends(get_owner_id),
+):
+    docs = await store.list_all(owner_id)
     retention_seconds = settings.retention_hours * 3600
     documents = [
         {
@@ -102,6 +122,7 @@ async def upload_document(
     file: UploadFile = File(...),
     store: DocumentStore = Depends(get_store),
     engine: PiiDetectionEngine = Depends(get_engine),
+    owner_id: str = Depends(get_owner_id),
 ):
     safe_name = sanitize_filename(file.filename or "upload")
     ext = Path(safe_name).suffix.lower()
@@ -133,6 +154,7 @@ async def upload_document(
     await store.create(
         document_id,
         {
+            "owner_id": owner_id,
             "filename": safe_name,
             "upload_time": _now_iso(),
             "original_path": str(upload_path),
@@ -155,8 +177,12 @@ async def upload_document(
 
 
 @router.post("/redact")
-async def redact_document(request: RedactionRequest, store: DocumentStore = Depends(get_store)):
-    doc_info = await store.get(request.document_id)
+async def redact_document(
+    request: RedactionRequest,
+    store: DocumentStore = Depends(get_store),
+    owner_id: str = Depends(get_owner_id),
+):
+    doc_info = await store.get(request.document_id, owner_id)
     if doc_info is None:
         raise HTTPException(status_code=404, detail="Document not found")
 
@@ -229,9 +255,12 @@ async def redact_document(request: RedactionRequest, store: DocumentStore = Depe
 
 @router.get("/download/{document_id}")
 async def download_document(
-    document_id: str, original: bool = False, store: DocumentStore = Depends(get_store)
+    document_id: str,
+    original: bool = False,
+    store: DocumentStore = Depends(get_store),
+    owner_id: str = Depends(get_owner_id),
 ):
-    doc_info = await store.get(document_id)
+    doc_info = await store.get(document_id, owner_id)
     if doc_info is None:
         raise HTTPException(status_code=404, detail="Document not found")
 
@@ -254,8 +283,12 @@ async def download_document(
 
 
 @router.delete("/document/{document_id}")
-async def delete_document(document_id: str, store: DocumentStore = Depends(get_store)):
-    doc_info = await store.get(document_id)
+async def delete_document(
+    document_id: str,
+    store: DocumentStore = Depends(get_store),
+    owner_id: str = Depends(get_owner_id),
+):
+    doc_info = await store.get(document_id, owner_id)
     if doc_info is None:
         raise HTTPException(status_code=404, detail="Document not found")
 
@@ -267,14 +300,18 @@ async def delete_document(document_id: str, store: DocumentStore = Depends(get_s
             except OSError:
                 logger.warning("Failed to remove file for deleted document: %s", path)
 
-    await store.delete(document_id)
+    await store.delete(document_id, owner_id)
     logger.info("Deleted document %s ('%s') on request", document_id, doc_info["filename"])
     return {"success": True, "document_id": document_id}
 
 
 @router.get("/document/{document_id}/preview")
-async def get_document_preview(document_id: str, store: DocumentStore = Depends(get_store)):
-    doc_info = await store.get(document_id)
+async def get_document_preview(
+    document_id: str,
+    store: DocumentStore = Depends(get_store),
+    owner_id: str = Depends(get_owner_id),
+):
+    doc_info = await store.get(document_id, owner_id)
     if doc_info is None:
         raise HTTPException(status_code=404, detail="Document not found")
 
@@ -298,9 +335,11 @@ async def get_document_preview(document_id: str, store: DocumentStore = Depends(
 
 @router.get("/document/{document_id}/redacted-preview")
 async def get_redacted_document_preview(
-    document_id: str, store: DocumentStore = Depends(get_store)
+    document_id: str,
+    store: DocumentStore = Depends(get_store),
+    owner_id: str = Depends(get_owner_id),
 ):
-    doc_info = await store.get(document_id)
+    doc_info = await store.get(document_id, owner_id)
     if doc_info is None:
         raise HTTPException(status_code=404, detail="Document not found")
     if doc_info.get("status") != "redacted":
@@ -362,8 +401,12 @@ def _build_audit_entries(doc_info: dict) -> list[dict]:
 
 
 @router.get("/document/{document_id}/audit-log")
-async def get_audit_log(document_id: str, store: DocumentStore = Depends(get_store)):
-    doc_info = await store.get(document_id)
+async def get_audit_log(
+    document_id: str,
+    store: DocumentStore = Depends(get_store),
+    owner_id: str = Depends(get_owner_id),
+):
+    doc_info = await store.get(document_id, owner_id)
     if doc_info is None:
         raise HTTPException(status_code=404, detail="Document not found")
 
@@ -378,8 +421,12 @@ async def get_audit_log(document_id: str, store: DocumentStore = Depends(get_sto
 
 
 @router.get("/document/{document_id}/download-audit-log")
-async def download_audit_log(document_id: str, store: DocumentStore = Depends(get_store)):
-    doc_info = await store.get(document_id)
+async def download_audit_log(
+    document_id: str,
+    store: DocumentStore = Depends(get_store),
+    owner_id: str = Depends(get_owner_id),
+):
+    doc_info = await store.get(document_id, owner_id)
     if doc_info is None:
         raise HTTPException(status_code=404, detail="Document not found")
 

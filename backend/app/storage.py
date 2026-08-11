@@ -36,6 +36,7 @@ class DocumentStore:
                 """
                 CREATE TABLE IF NOT EXISTS documents (
                     id TEXT PRIMARY KEY,
+                    owner_id TEXT,
                     filename TEXT NOT NULL,
                     upload_time TEXT NOT NULL,
                     original_path TEXT,
@@ -51,6 +52,16 @@ class DocumentStore:
                     created_at REAL NOT NULL
                 )
                 """
+            )
+            # Migrate databases created before per-owner scoping existed. Rows
+            # from that era have a NULL owner_id and therefore match no client,
+            # which is exactly what we want: previously shared documents stop
+            # appearing in everyone's history and age out via retention.
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(documents)")}
+            if "owner_id" not in columns:
+                conn.execute("ALTER TABLE documents ADD COLUMN owner_id TEXT")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_documents_owner ON documents(owner_id)"
             )
             conn.commit()
         finally:
@@ -71,12 +82,13 @@ class DocumentStore:
             conn.execute(
                 """
                 INSERT INTO documents
-                    (id, filename, upload_time, original_path, extracted_text,
+                    (id, owner_id, filename, upload_time, original_path, extracted_text,
                      entities, status, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     document_id,
+                    data.get("owner_id"),
                     data["filename"],
                     data["upload_time"],
                     data["original_path"],
@@ -90,12 +102,18 @@ class DocumentStore:
         finally:
             conn.close()
 
-    def _get(self, document_id: str) -> Optional[dict]:
+    def _get(self, document_id: str, owner_id: Optional[str] = None) -> Optional[dict]:
         conn = self._connect()
         try:
-            row = conn.execute(
-                "SELECT * FROM documents WHERE id = ?", (document_id,)
-            ).fetchone()
+            if owner_id is None:
+                row = conn.execute(
+                    "SELECT * FROM documents WHERE id = ?", (document_id,)
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    "SELECT * FROM documents WHERE id = ? AND owner_id = ?",
+                    (document_id, owner_id),
+                ).fetchone()
             return self._row_to_dict(row) if row else None
         finally:
             conn.close()
@@ -120,24 +138,32 @@ class DocumentStore:
         finally:
             conn.close()
 
-    def _list(self) -> list[dict]:
+    def _list(self, owner_id: str) -> list[dict]:
         conn = self._connect()
         try:
             rows = conn.execute(
                 """
                 SELECT id, filename, upload_time, status, entities, redacted_count, created_at
                 FROM documents
+                WHERE owner_id = ?
                 ORDER BY created_at DESC
-                """
+                """,
+                (owner_id,),
             ).fetchall()
             return [self._row_to_dict(row) for row in rows]
         finally:
             conn.close()
 
-    def _delete(self, document_id: str) -> None:
+    def _delete(self, document_id: str, owner_id: Optional[str] = None) -> None:
         conn = self._connect()
         try:
-            conn.execute("DELETE FROM documents WHERE id = ?", (document_id,))
+            if owner_id is None:
+                conn.execute("DELETE FROM documents WHERE id = ?", (document_id,))
+            else:
+                conn.execute(
+                    "DELETE FROM documents WHERE id = ? AND owner_id = ?",
+                    (document_id, owner_id),
+                )
             conn.commit()
         finally:
             conn.close()
@@ -161,17 +187,17 @@ class DocumentStore:
     async def create(self, document_id: str, data: dict) -> None:
         await asyncio.to_thread(self._create, document_id, data)
 
-    async def get(self, document_id: str) -> Optional[dict]:
-        return await asyncio.to_thread(self._get, document_id)
+    async def get(self, document_id: str, owner_id: Optional[str] = None) -> Optional[dict]:
+        return await asyncio.to_thread(self._get, document_id, owner_id)
 
     async def update(self, document_id: str, **updates) -> None:
         await asyncio.to_thread(self._update, document_id, updates)
 
-    async def list_all(self) -> list[dict]:
-        return await asyncio.to_thread(self._list)
+    async def list_all(self, owner_id: str) -> list[dict]:
+        return await asyncio.to_thread(self._list, owner_id)
 
-    async def delete(self, document_id: str) -> None:
-        await asyncio.to_thread(self._delete, document_id)
+    async def delete(self, document_id: str, owner_id: Optional[str] = None) -> None:
+        await asyncio.to_thread(self._delete, document_id, owner_id)
 
     async def purge_expired(self, retention_hours: float) -> list[dict]:
         return await asyncio.to_thread(self._purge_expired, retention_hours * 3600)

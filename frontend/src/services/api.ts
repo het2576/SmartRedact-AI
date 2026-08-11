@@ -20,6 +20,60 @@ const apiClient = axios.create({
   },
 });
 
+// Anonymous per-browser owner token. The backend has no login, so this token
+// (persisted in localStorage and sent on every request) is what keeps this
+// browser's documents out of everyone else's history. Cleared localStorage =
+// a fresh identity with an empty history, which is the expected trade-off.
+const OWNER_ID_KEY = 'blacken_owner_id';
+
+// Fallback in-memory ID used only when both localStorage and sessionStorage are
+// blocked (e.g. some private-browsing modes). Each page session gets its own
+// unique ID so documents are never leaked into a shared "anonymous" bucket.
+let _memoryOwnerId: string | null = null;
+
+function generateId(): string {
+  return typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function getOwnerId(): string {
+  // 1. Try localStorage (persists across sessions — the normal case).
+  try {
+    let id = localStorage.getItem(OWNER_ID_KEY);
+    if (!id) {
+      id = generateId();
+      localStorage.setItem(OWNER_ID_KEY, id);
+    }
+    return id;
+  } catch {
+    // localStorage unavailable — fall through.
+  }
+
+  // 2. Try sessionStorage (tab-scoped, works in most private-browsing modes).
+  try {
+    let id = sessionStorage.getItem(OWNER_ID_KEY);
+    if (!id) {
+      id = generateId();
+      sessionStorage.setItem(OWNER_ID_KEY, id);
+    }
+    return id;
+  } catch {
+    // sessionStorage also unavailable — fall through.
+  }
+
+  // 3. In-memory fallback — unique per page load, never shared across tabs.
+  if (!_memoryOwnerId) {
+    _memoryOwnerId = generateId();
+  }
+  return _memoryOwnerId;
+}
+
+apiClient.interceptors.request.use((config) => {
+  config.headers.set('X-Owner-Id', getOwnerId());
+  return config;
+});
+
 // Types for API responses
 export interface Entity {
   text: string;

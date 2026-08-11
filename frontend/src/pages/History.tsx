@@ -91,7 +91,7 @@ export default function History() {
       </span>
       <h1 className="mt-3 font-display text-display-2 font-semibold text-ink">Document history</h1>
       <p className="mt-3 max-w-lg font-serif text-lg leading-relaxed text-ink-soft">
-        Every document currently held by this server, until its retention window ends it for you.
+        Your documents, held privately on this server until their retention window expires.
       </p>
 
       <div className="mt-10">

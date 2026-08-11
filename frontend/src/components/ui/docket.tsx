@@ -23,7 +23,7 @@ export function Docket({ steps, current, className }: DocketProps) {
         const state = i < current ? "done" : i === current ? "active" : "pending";
         return (
           <li key={step.label} className="flex flex-1 items-center last:flex-none">
-            <div className="flex items-center gap-2.5">
+            <div className="flex min-w-0 items-center gap-2.5">
               <span
                 className={cn(
                   "flex h-6 w-6 shrink-0 items-center justify-center border font-display text-[10px] font-semibold",
@@ -36,7 +36,10 @@ export function Docket({ steps, current, className }: DocketProps) {
               </span>
               <span
                 className={cn(
-                  "font-display text-[11px] font-medium uppercase tracking-[0.08em] whitespace-nowrap",
+                  "truncate font-display text-[11px] font-medium uppercase tracking-[0.08em] whitespace-nowrap sm:inline",
+                  // On small screens only the active step keeps its label; the rest
+                  // collapse to just their number so the four steps always fit.
+                  state === "active" ? "inline" : "hidden",
                   state === "pending" ? "text-ink-faint" : "text-ink",
                 )}
               >
@@ -46,7 +49,7 @@ export function Docket({ steps, current, className }: DocketProps) {
             {i < steps.length - 1 && (
               <span
                 className={cn(
-                  "mx-3 h-px flex-1 min-w-4",
+                  "mx-2 h-px flex-1 min-w-3 sm:mx-3 sm:min-w-4",
                   i < current ? "bg-ink" : "bg-line",
                 )}
               />

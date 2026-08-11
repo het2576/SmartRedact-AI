@@ -97,16 +97,16 @@ export default function VerifyList({ entities, onToggle, onAddManual }: VerifyLi
 
   return (
     <div className="space-y-5">
-      <div className="flex items-end justify-between border-b border-line pb-4">
+      <div className="flex flex-col gap-3 border-b border-line pb-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h3 className="font-display text-lg font-semibold text-ink">
+          <h3 className="font-display text-base font-semibold text-ink sm:text-lg">
             {entities.length} item{entities.length === 1 ? '' : 's'} flagged for review
           </h3>
           <p className="mt-1 font-serif text-[15px] text-ink-soft">
             Click a row to keep it visible instead of redacting it.
           </p>
         </div>
-        <div className="text-right">
+        <div className="flex shrink-0 items-baseline gap-2 sm:block sm:text-right">
           <p className="font-display text-2xl font-semibold text-ink">{selectedCount}</p>
           <p className="font-display text-[10px] uppercase tracking-[0.08em] text-ink-faint">
             will be redacted

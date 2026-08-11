@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { documentRedactionAPI, DocumentPreviewResponse, RedactedPreviewResponse } from '@/services/api';
-import { AlertCircle, Download, FileImage, X } from 'lucide-react';
+import { AlertCircle, Download, Maximize2, X } from 'lucide-react';
 import { Panel } from './ui/panel';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
@@ -19,36 +19,84 @@ export default function PreviewSection({ documentId, summary, refreshTrigger }: 
   const [redactedPreview, setRedactedPreview] = useState<RedactedPreviewResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showViewer, setShowViewer] = useState(false);
-  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+
+  const [originalUrl, setOriginalUrl] = useState<string | null>(null);
+  const [redactedUrl, setRedactedUrl] = useState<string | null>(null);
+  const [originalError, setOriginalError] = useState(false);
+  const [redactedError, setRedactedError] = useState(false);
+
+  const [fullscreen, setFullscreen] = useState<{ url: string; label: string } | null>(null);
+
+  const originalRef = useRef<string | null>(null);
+  const redactedRef = useRef<string | null>(null);
+
+  const putOriginal = (url: string | null) => {
+    if (originalRef.current) URL.revokeObjectURL(originalRef.current);
+    originalRef.current = url;
+    setOriginalUrl(url);
+  };
+  const putRedacted = (url: string | null) => {
+    if (redactedRef.current) URL.revokeObjectURL(redactedRef.current);
+    redactedRef.current = url;
+    setRedactedUrl(url);
+  };
 
   useEffect(() => {
     if (!documentId) return;
-    loadDocumentData();
+    let cancelled = false;
+
+    putOriginal(null);
+    putRedacted(null);
+    setRedactedPreview(null);
+    setOriginalError(false);
+    setRedactedError(false);
+
+    (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const preview = await documentRedactionAPI.getDocumentPreview(documentId);
+        if (cancelled) return;
+        setDocumentPreview(preview);
+
+        documentRedactionAPI
+          .getDocumentUrl(documentId, false)
+          .then((url) => (cancelled ? URL.revokeObjectURL(url) : putOriginal(url)))
+          .catch(() => !cancelled && setOriginalError(true));
+
+        if (preview.status === 'redacted') {
+          try {
+            const redacted = await documentRedactionAPI.getRedactedPreview(documentId);
+            if (cancelled) return;
+            setRedactedPreview(redacted);
+            documentRedactionAPI
+              .getDocumentUrl(documentId, true)
+              .then((url) => (cancelled ? URL.revokeObjectURL(url) : putRedacted(url)))
+              .catch(() => !cancelled && setRedactedError(true));
+          } catch {
+            // redacted preview not ready yet — original still renders
+          }
+        }
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load document data');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [documentId, refreshTrigger]);
 
-  const loadDocumentData = async () => {
-    if (!documentId) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const preview = await documentRedactionAPI.getDocumentPreview(documentId);
-      setDocumentPreview(preview);
-      if (preview.status === 'redacted') {
-        try {
-          const redacted = await documentRedactionAPI.getRedactedPreview(documentId);
-          setRedactedPreview(redacted);
-        } catch {
-          // redacted preview not ready yet — original preview still renders
-        }
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load document data');
-    } finally {
-      setLoading(false);
-    }
-  };
+  useEffect(
+    () => () => {
+      if (originalRef.current) URL.revokeObjectURL(originalRef.current);
+      if (redactedRef.current) URL.revokeObjectURL(redactedRef.current);
+    },
+    [],
+  );
 
   const handleDownload = async () => {
     if (!documentId) return;
@@ -60,30 +108,43 @@ export default function PreviewSection({ documentId, summary, refreshTrigger }: 
     }
   };
 
-  const handleViewDocument = async (isRedacted: boolean) => {
-    if (!documentId) return;
-    try {
-      setLoading(true);
-      setError(null);
-      const url = await documentRedactionAPI.getDocumentUrl(documentId, isRedacted);
-      setPdfUrl(url);
-      setShowViewer(true);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load document');
-    } finally {
-      setLoading(false);
-    }
-  };
+  const isImage = /\.(jpg|jpeg|png|gif|bmp|webp)$/.test((documentPreview?.filename ?? '').toLowerCase());
 
-  const closeViewer = () => {
-    setShowViewer(false);
-    if (pdfUrl) {
-      URL.revokeObjectURL(pdfUrl);
-      setPdfUrl(null);
-    }
-  };
+  const renderViewer = (url: string, label: string) =>
+    isImage ? (
+      <img src={url} alt={label} className="h-full w-full object-contain" />
+    ) : (
+      <iframe src={url} className="h-full w-full" title={label} />
+    );
 
-  const isImage = (documentPreview?.filename ?? '').toLowerCase().match(/\.(jpg|jpeg|png|gif|bmp|webp)$/);
+  const renderInline = (url: string | null, failed: boolean, label: string) => {
+    if (failed) {
+      return (
+        <div className="flex flex-1 items-center justify-center border border-line bg-paper px-4 text-center font-display text-[11px] uppercase tracking-[0.08em] text-ink-faint">
+          Preview unavailable
+        </div>
+      );
+    }
+    if (!url) {
+      return (
+        <div className="flex flex-1 items-center justify-center border border-line bg-paper font-display text-[11px] uppercase tracking-[0.08em] text-ink-faint">
+          Loading preview…
+        </div>
+      );
+    }
+    return (
+      <div className="group relative flex-1 overflow-hidden border border-line bg-paper">
+        {renderViewer(url, label)}
+        <button
+          onClick={() => setFullscreen({ url, label })}
+          className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center border border-ink bg-paper-raised/90 text-ink opacity-100 transition-colors hover:bg-ink hover:text-paper-raised sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
+          aria-label={`Open ${label} fullscreen`}
+        >
+          <Maximize2 className="h-4 w-4" />
+        </button>
+      </div>
+    );
+  };
 
   if (loading && !documentPreview) {
     return (
@@ -97,7 +158,7 @@ export default function PreviewSection({ documentId, summary, refreshTrigger }: 
 
   if (error) {
     return (
-      <div className="flex items-start gap-3 border border-alert bg-alert-soft/40 p-6">
+      <div className="flex items-start gap-3 border border-alert bg-alert-soft/40 p-5 sm:p-6">
         <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-alert" />
         <div>
           <p className="font-display text-sm font-semibold text-alert">Couldn't load this document</p>
@@ -108,52 +169,41 @@ export default function PreviewSection({ documentId, summary, refreshTrigger }: 
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6 sm:space-y-8">
       <div className="grid grid-cols-3 divide-x divide-line border border-line bg-paper-raised">
-        <div className="p-6 text-center">
-          <p className="font-display text-3xl font-semibold text-ink">
+        <div className="p-3 text-center sm:p-6">
+          <p className="font-display text-2xl font-semibold text-ink sm:text-3xl">
             {documentPreview?.entity_count ?? 0}
           </p>
-          <p className="mt-1 font-display text-[10px] uppercase tracking-[0.08em] text-ink-faint">
+          <p className="mt-1 font-display text-[9px] uppercase leading-tight tracking-[0.06em] text-ink-faint sm:text-[10px] sm:tracking-[0.08em]">
             Entities detected
           </p>
         </div>
-        <div className="p-6 text-center">
-          <p className="font-display text-3xl font-semibold text-flag">{summary.entitiesRedacted}</p>
-          <p className="mt-1 font-display text-[10px] uppercase tracking-[0.08em] text-ink-faint">
+        <div className="p-3 text-center sm:p-6">
+          <p className="font-display text-2xl font-semibold text-flag sm:text-3xl">{summary.entitiesRedacted}</p>
+          <p className="mt-1 font-display text-[9px] uppercase leading-tight tracking-[0.06em] text-ink-faint sm:text-[10px] sm:tracking-[0.08em]">
             Entities redacted
           </p>
         </div>
-        <div className="p-6 text-center">
-          <p className="font-display text-3xl font-semibold text-confirm">{summary.avgConfidence}%</p>
-          <p className="mt-1 font-display text-[10px] uppercase tracking-[0.08em] text-ink-faint">
+        <div className="p-3 text-center sm:p-6">
+          <p className="font-display text-2xl font-semibold text-confirm sm:text-3xl">{summary.avgConfidence}%</p>
+          <p className="mt-1 font-display text-[9px] uppercase leading-tight tracking-[0.06em] text-ink-faint sm:text-[10px] sm:tracking-[0.08em]">
             Average confidence
           </p>
         </div>
       </div>
 
       <div className="grid gap-8 md:grid-cols-2">
-        <Panel tab="EXHIBIT A — ORIGINAL" className="flex h-72 flex-col p-5">
+        <Panel tab="EXHIBIT A — ORIGINAL" className="flex h-[26rem] flex-col p-4 sm:h-[28rem] sm:p-5">
           {documentPreview ? (
             <>
-              <div className="flex items-center justify-between border-b border-line pb-3">
+              <div className="flex items-center justify-between gap-3 border-b border-line pb-3">
                 <span className="truncate font-display text-xs font-medium text-ink">
                   {documentPreview.filename}
                 </span>
                 <Badge tone="muted">{documentPreview.entity_count} found</Badge>
               </div>
-              <p className="mt-3 flex-1 overflow-y-auto font-serif text-sm leading-relaxed text-ink-soft">
-                {documentPreview.extracted_text_preview}
-              </p>
-              <Button
-                variant="outline"
-                size="sm"
-                className="mt-3 w-full"
-                onClick={() => handleViewDocument(false)}
-              >
-                <FileImage className="h-3.5 w-3.5" />
-                View original
-              </Button>
+              {renderInline(originalUrl, originalError, 'Original document')}
             </>
           ) : (
             <div className="flex flex-1 items-center justify-center font-display text-xs uppercase tracking-[0.08em] text-ink-faint">
@@ -162,33 +212,20 @@ export default function PreviewSection({ documentId, summary, refreshTrigger }: 
           )}
         </Panel>
 
-        <Panel tab="EXHIBIT B — REDACTED" className="flex h-72 flex-col p-5">
+        <Panel tab="EXHIBIT B — REDACTED" className="flex h-[26rem] flex-col p-4 sm:h-[28rem] sm:p-5">
           {redactedPreview ? (
             <>
-              <div className="flex items-center justify-between border-b border-line pb-3">
+              <div className="flex items-center justify-between gap-3 border-b border-line pb-3">
                 <span className="truncate font-display text-xs font-medium text-ink">
                   {redactedPreview.redacted_filename}
                 </span>
                 <Badge tone="flag">{redactedPreview.redacted_count} redacted</Badge>
               </div>
-              <p className="mt-3 flex-1 overflow-y-auto font-serif text-sm leading-relaxed text-ink-soft">
-                {redactedPreview.redacted_text_preview}
-              </p>
-              <div className="mt-3 flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="flex-1"
-                  onClick={() => handleViewDocument(true)}
-                >
-                  <FileImage className="h-3.5 w-3.5" />
-                  View redacted
-                </Button>
-                <Button size="sm" className="flex-1" onClick={handleDownload}>
-                  <Download className="h-3.5 w-3.5" />
-                  Download
-                </Button>
-              </div>
+              {renderInline(redactedUrl, redactedError, 'Redacted document')}
+              <Button size="sm" className="mt-3 w-full" onClick={handleDownload}>
+                <Download className="h-3.5 w-3.5" />
+                Download
+              </Button>
             </>
           ) : documentPreview?.status === 'redacted' ? (
             <div className="flex flex-1 items-center justify-center font-display text-xs uppercase tracking-[0.08em] text-ink-faint">
@@ -202,28 +239,26 @@ export default function PreviewSection({ documentId, summary, refreshTrigger }: 
         </Panel>
       </div>
 
-      {showViewer && pdfUrl && (
+      {fullscreen && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-ink/80 p-4"
-          onClick={closeViewer}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-ink/80 p-3 sm:p-4"
+          onClick={() => setFullscreen(null)}
         >
           <div
             className="flex h-[90vh] w-full max-w-6xl flex-col border border-ink bg-paper-raised"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between border-b border-line p-4">
-              <span className="font-display text-sm font-semibold text-ink">Document viewer</span>
-              <button onClick={closeViewer} className="text-ink-faint hover:text-ink" aria-label="Close viewer">
+            <div className="flex items-center justify-between border-b border-line p-3 sm:p-4">
+              <span className="truncate font-display text-sm font-semibold text-ink">{fullscreen.label}</span>
+              <button
+                onClick={() => setFullscreen(null)}
+                className="text-ink-faint hover:text-ink"
+                aria-label="Close viewer"
+              >
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <div className="flex-1 p-4">
-              {isImage ? (
-                <img src={pdfUrl} alt="Document preview" className="h-full w-full object-contain" />
-              ) : (
-                <iframe src={pdfUrl} className="h-full w-full border border-line" title="Document viewer" />
-              )}
-            </div>
+            <div className="flex-1 p-3 sm:p-4">{renderViewer(fullscreen.url, fullscreen.label)}</div>
           </div>
         </div>
       )}

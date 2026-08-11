@@ -168,7 +168,7 @@ export default function Settings() {
                 <span className="font-display text-[11px] uppercase tracking-[0.06em] text-alert">{saveError}</span>
               )}
               <span className="font-serif text-sm text-ink-faint">
-                Resets to the value in <code className="font-display text-xs">backend/.env</code> when the server restarts.
+                These changes take effect right away, but they're temporary — the server restores its default values every time it restarts.
               </span>
             </div>
           </Panel>

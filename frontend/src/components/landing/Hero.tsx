@@ -66,11 +66,11 @@ export default function Hero({ onGetStarted }: HeroProps) {
             </div>
             <dl className="space-y-4">
               {RECORD_LINES.map((row) => (
-                <div key={row.label} className="flex items-baseline gap-4">
-                  <dt className="w-20 shrink-0 font-display text-[10px] uppercase tracking-[0.08em] text-ink-faint">
+                <div key={row.label} className="flex items-baseline gap-3 sm:gap-4">
+                  <dt className="w-14 shrink-0 font-display text-[10px] uppercase tracking-[0.08em] text-ink-faint sm:w-20">
                     {row.label}
                   </dt>
-                  <dd className="font-serif text-base text-ink">{row.value}</dd>
+                  <dd className="min-w-0 font-serif text-sm text-ink sm:text-base">{row.value}</dd>
                 </div>
               ))}
             </dl>
